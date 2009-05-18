@@ -10,5 +10,9 @@ all : ns
 clean:
 	rm ns
 
+.PHONY: commit
+commit:
+	git commit -a
+
 ns : ns.c
 	gcc -o ns ns.c $(CFLAGS) $(LIBS)
