@@ -31,124 +31,118 @@
 #define FLASH_SIZE	1073741824
 
 // timings
-#define REFRESH_RATE	1000000
-#define INTERRUPT_RATE	10000
+#define REFRESH_RATE	1000000	
+#define INTERRUPT_RATE	10000	
 
 // typedefs
-typedef Uint32 cell;
+typedef Uint32 cell;	// 32bit unsigned integer 
 
 // VM globals
-cell ip;
-cell dsi;
-cell ds[8];
-cell rsi;
-cell rs[8];
-cell cnt;
-cell src;
-cell dst;
-cell utl;
-cell im[CACHE_SIZE];
-cell rom[ROM_SIZE];
-cell* ram;
-cell* flash;
+cell ip;		// Instruction Pointer
+cell dsi;		// Data Stack Index
+cell ds[8];		// Data Stack
+cell rsi;		// Return Stack Index
+cell rs[8];		// Return STack
+cell cnt;		// Count Register
+cell src;		// Source Register
+cell dst;		// Destination Register
+cell utl;		// Utility / Status Register
+cell im[CACHE_SIZE];	// Instruction Memory (modified Havard Architecture)
+cell rom[ROM_SIZE];	// Read Only Memory (first 16k of Flash Image)
+cell* ram;		// RAM pointer	(1GB)
+cell* flash;		// FLASH Image pointer
 
 // System globals
-cell flash_size;
-cell flash_fd;
-char* flash_file;
-SDL_Surface* display;
-SDL_Event event;
-cell ticks;
+cell flash_size;	// Size of Flash Image
+cell flash_fd;		// File Descriptor of Flash Image
+char* flash_file;	// Filename of Flash Image
+SDL_Surface* display;	// Display Device
+SDL_Event event;	// Last Event Polled
+cell ticks;		// System clock
 
 // functions
 
-cell tos() { return ds[dsi]; }
-cell nos() { return ds[7&(dsi-1)]; }
-void up(cell c) { ds[dsi = 7&(dsi+1)] = c; }
-void down() { dsi = 7&(dsi-1); }
-void stos(cell c) { ds[dsi] = c; }
-void snos(cell c) { ds[7&(dsi-1)] = c; }
-cell rtos() { return rs[rsi]; }
-void upr(cell c) { rs[rsi = 7&(rsi+1)] = c; }
-void downr() { rsi = 7&(rsi-1); }
+cell tos() { return ds[dsi]; }			// Top of Stack
+cell nos() { return ds[7&(dsi-1)]; }		// Next on Stack
+void up(cell c) { ds[dsi = 7&(dsi+1)] = c; }	// Push c onto Data Stack
+void down() { dsi = 7&(dsi-1); }		// Drop Top of Stack
+void stos(cell c) { ds[dsi] = c; }		// Store Top of Stack
+void snos(cell c) { ds[7&(dsi-1)] = c; }	// Store Next on Stack
+cell rtos() { return rs[rsi]; }			// Return Stack Top of Stack
+void upr(cell c) { rs[rsi = 7&(rsi+1)] = c; }	// Push c onto Return Stack
+void downr() { rsi = 7&(rsi-1); }		// Drop Top of Return Stack
 
-cell net_read() {
+cell net_read() {				// Read from Network Interface
 
 }
 
-cell mouse_buffer[3] = { 0, 0, 0 };
-cell mouse_buffer_index = 0;
-cell mouse_read() {
+cell mouse_buffer[3] = { 0, 0, 0 };		// Last Mouse Event data buffer
+cell mouse_buffer_index = 0;			// Index into Mouse Buffer (3 cycle read)
+cell mouse_read() {				// Read one cell from mouse buffer, cyclic
 	mouse_buffer_index %= 3;
 	return mouse_buffer[mouse_buffer_index++];
 }
 
-cell key_buffer = 0;
-cell key_read() { return key_buffer; }
+cell key_buffer = 0;				// Last Key Event data buffer
+cell key_read() { return key_buffer; }		// Read one cell from last key buffer
 
-void net_write(cell val) {
+void net_write(cell val) {			// Write to Network Interface
 
 }
 
-SDL_Rect video_rect;
-cell texture_memory[1280*720];	// default screen resolution is 720p
-cell video_color[4];
-cell video_input[3];
-cell video_index = 0;
+SDL_Rect video_rect;				// VGDD State Machine position data x,y,dx,dy
+cell texture_memory[1280*720];			// 720p VGDD Texture Memory, used for blitting to screen
+cell texture_index = 0;				// Index into Texture Memory
+cell video_color[2];				// VGDD Color Buffer, 0 RGBA line, 1 RGBA fill
+cell video_command[3];				// VGDD command buffer, 0 tag 1 data 2 data
+cell video_index = 0;				// VGDD command buffer index 
 
-void vid_write(cell val) {
+void vid_write(cell val) {			// Write to VGDD command buffer
 	
 	
 }
 
-void vid_data() {
-	video_index %= 1280*720;
-	texture_memory[video_index++] = val;
+void vid_data() {				// Write to VGDD Texture Memory
+	texture_memory[texture_index++] = 0;
 }
 
-void vid_at(cell x, cell y) {
+void vid_at(cell x, cell y) {			// Set x,y position
 	video_rect.x = (Sint16)x;
 	video_rect.y = (Sint16)y;
 }
 
-void vid_to(cell dx, cell dy) {
+void vid_to(cell dx, cell dy) {			// Alter x,y by dx,dy
 	video_rect.x += (Sint16)dx;
 	video_rect.y += (Sint16)dy;
 }
 
-void vid_by(cell dx, cell dy) {
+void vid_by(cell dx, cell dy) {			// Set dx,dy dimensions
 	video_rect.w = (Uint16)dx;
 	video_rect.h = (Uint16)dy;
 }
 
-void vid_as(cell x, cell y, cell dx, cell dy) {
+void vid_as(cell x, cell y, cell dx, cell dy) {	// Set x,y,dx,dy position and dimensions
 	video_rect.x = (Sint16)x;
 	video_rect.y = (Sint16)y;
 	video_rect.w = (Uint16)dx;
 	video_rect.h = (Uint16)dy;
 }
 
-void vid_line() {
+void vid_line() {				// Draw a line from x,y to x+dx,y+dy
+	glColor4ub(video_color[0]&0xff,(video_color[0]>>8)&0xff,(video_color[0]>>16)&0xff,(video_color[0]>>24)&0xff);
 	glBegin(GL_LINES);
 	glVertex3i(video_rect.x,video_rect.y,0);
 	glVertex3i(video_rect.x+(Sint16)video_rect.w,video_rect.y+(Sint16)video_rect.h,0);
 	glEnd();
 }
 
-void vid_arc() {
+void vid_arc() {			// Draw an arc from x,y tangential to (x,y)(cx,cy) to (x+dx,y+dy)
+	glColor4ub(video_color[0]&0xff,(video_color[0]>>8)&0xff,(video_color[0]>>16)&0xff,(video_color[0]>>24)&0xff);
 	// TODO
 }
 
-void vid_rect() {
-	glBegin(GL_LINE_LOOP);
-	glVertex3i(video_rect.x,video_rect.y+video_rect.h,0);
-	glVertex3i(video_rect.x+video_rect.w,video_rect.y+video_rect.h,0);
-	glVertex3i(video_rect.x+video_rect.w,video_rect.y,0);
-	glVertex3i(video_rect.x,video_rect.y,0);
-	glEnd();
-}
-
-void vid_fill() {
+void vid_rect() {				// Draw a rectangle at x,y to x+dx,y+dy
+	glColor4ub(video_color[1]&0xff,(video_color[1]>>8)&0xff,(video_color[1]>>16)&0xff,(video_color[1]>>24)&0xff);
 	glBegin(GL_QUADS);
 	glVertex3i(video_rect.x,video_rect.y+video_rect.h,0);
 	glVertex3i(video_rect.x+video_rect.w,video_rect.y+video_rect.h,0);
@@ -157,13 +151,17 @@ void vid_fill() {
 	glEnd();
 }
 
-void vid_color() {
-	glColor4ub(video_color[0],video_color[1],video_color[2],video_color[3]);
+void vid_color() {				// set line color
+	video_color[0] = video_command[1];
+}
+
+void vid_fill() {				// set fill color
+	video_color[1] = video_command[1];
 }
 
 cell audio_memory[44100];	// default buffer is 1sec of audio 44100Hz 2 channels 16bit PCM linear
-cell audio_index = 0;
-void aud_write(cell val) {
+cell audio_index = 0;		// index into audio memory
+void aud_write(cell val) {	// Write to audio memory
 	cell* ms = NULL;
 	if (utl&0x08) {
 		audio_index %= 44100;
@@ -176,7 +174,7 @@ void aud_write(cell val) {
 	memcpy(audio_memory,ms,cnt*sizeof(cell));
 }
 
-void mem_read(cell addr) {
+void mem_read(cell addr) {			// Read from a memory address (device I/O too)
 	addr & 0x80000000 ? stos(flash[addr] & 0x7fffffff):
 	addr == 0x7fffffff ? stos(net_read()):
 	addr == 0x7ffffffc ? stos(mouse_read()):
@@ -185,7 +183,7 @@ void mem_read(cell addr) {
 	stos(ram[addr]);
 }
 
-void mem_write(cell addr, cell value) {
+void mem_write(cell addr, cell value) {		// Write to a memory address (device I/O too)
 	addr & 0x80000000 ? (flash[addr] = value):
 	addr == 0x7fffffff ? net_write(value):
 	addr == 0x7ffffffe ? vid_write(value):
@@ -193,7 +191,7 @@ void mem_write(cell addr, cell value) {
 	(ram[addr] = value);
 }
 
-void mem_move(int d) {
+void mem_move(int d) {				// Copy memory from one location to another
 	cell* ms = NULL; 
 	cell* md = NULL;
 	utl &= 0xfffffff7;
@@ -215,7 +213,7 @@ void mem_move(int d) {
 }
 
 // NB: we can't compare device data!  Copy to a buffer first.  dst = im, src = rom
-void mem_cmp() {
+void mem_cmp() {					// Compare to regions of memory (no device I/O)
 	cell* ms = NULL; 
 	cell* md = NULL;
 	utl &= 0xfffffff7;
@@ -232,7 +230,7 @@ void mem_cmp() {
 	utl |= 0x08;
 }
 
-int keymap() {
+int keymap() {					// Maps from keyboard to Firth character map
 	int c = event.key.keysym.sym;
 	int map[] = { 
 		SDLK_0, SDLK_1, SDLK_2, SDLK_3, SDLK_4, SDLK_5, SDLK_6, SDLK_7, 
@@ -257,7 +255,7 @@ int keymap() {
 		0x66;
 }
 
-void interrupt() {
+void interrupt() {			// Simulate a device interrupt
 	utl &= 0xfffffff0;
 	if (SDL_PollEvent(&event)) switch(event.type) {
 		case SDL_QUIT:
@@ -298,17 +296,18 @@ void interrupt() {
 }
 
 // NB: this routine handles simulating the hardware, updates video and 
-void update() {
+void update() {					// Update the system clock & simulate attached devices
 	++ticks;
-	if (ticks % INTERRUPT_RATE == 0) interrupt();
-	if (ticks % REFRESH_RATE == 0) SDL_GL_SwapBuffers;
+	if (!(ticks % INTERRUPT_RATE)) interrupt();
+	if (!(ticks % REFRESH_RATE)) SDL_GL_SwapBuffers;
 }
 
 // This is the main VM loop
-void go() {
+void go() {					// Simulate Decoder & ALU
 	cell instr;
 	int a, b;
 fetch:
+	update(); // System hook to simulate hardware, 1 clock each
 	ip &= 0x0fff;
 	instr = im[ip++];
 	if (! (instr & 0x80000000)) { 
@@ -365,13 +364,12 @@ next_op:
 		default: break;
 	}
 next:
-	update(); // System hook to simulate hardware
 	instr >>= 8;
 	if (instr == 0) goto fetch;
 	goto next_op;
 }
 
-void init() {
+void init() {				// Initialize Platform Specific Application Settings
 	ticks = 0;
 	SDL_Init(SDL_INIT_EVERYTHING);
 	SDL_GL_SetAttribute(SDL_GL_RED_SIZE, 8);
@@ -385,7 +383,7 @@ void init() {
 	if (! display) exit(NO_DISPLAY);
 }
 
-void reset() {
+void reset() {				// Reset the VM, unmap flash if loaded
 	ip = dsi = rsi = cnt = src = dst = utl = 0;
 	ram = mmap(NULL,RAM_SIZE,PROT_READ|PROT_WRITE,MAP_ANON,-1,0);
 	if (ram < 0) exit(NO_RAM);
@@ -396,7 +394,7 @@ void reset() {
 	flash = NULL;
 }
 
-void boot() {
+void boot() {				// Load the flash image, and start VM
 	struct stat st;
 	flash_fd = open(flash_file,O_RDWR,0600);
 	if (flash_fd < 0) exit(NO_FILE);
@@ -410,7 +408,7 @@ void boot() {
 	go();
 }
 
-int main (int argc, char** argv) {
+int main (int argc, char** argv) {	//  Main Program Entry point
 	if (argc != 2) {
 		fprintf(stderr,"Usage: %s [file]\n",argv[0]);
 		return 0;
