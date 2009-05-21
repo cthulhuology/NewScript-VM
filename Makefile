@@ -2,13 +2,13 @@
 #
 
 CFLAGS = -ggdb -std=c99 `sdl-config --cflags`
-LIBS = `sdl-config --libs` -framework OpenGL
+LIBS = `sdl-config --libs` -framework OpenGL -lpcap
 
 all : ns
 
 .PHONY: clean
 clean:
-	rm ns
+	rm -rf ns ns.dSYM
 
 .PHONY: commit
 commit:
@@ -16,3 +16,6 @@ commit:
 
 ns : ns.c
 	gcc -o ns ns.c $(CFLAGS) $(LIBS)
+
+install: ns
+	sudo install -o root -g staff -m 4755 ns /usr/local/bin

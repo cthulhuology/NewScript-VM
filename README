@@ -1,0 +1,139 @@
+README - NewScript and the Firth VM
+--------------------------------------------------------------------------------
+
+Copyright 2009 David J Goehrig
+All Rights Reserved
+
+--------------------------------------------------------------------------------
+Quick Start
+--------------------------------------------------------------------------------
+
+  make install
+  ns rom.nsi
+
+--------------------------------------------------------------------------------
+Introduction
+--------------------------------------------------------------------------------
+
+The Firth VM is a simulation of a new hardware architecture designed 
+specifically to run the NewScript programming environment.  This software is
+distributed under the GPLv3, in order to familiarize engineers, artists, and
+educators with the platform.  As free software you are free to modify, port,
+and redistribute this application in accordance to the GPLv3.  It should be
+noted, however, as this is intended as a simulation of a physical device, such
+derived works should not be considered authoritative, and should not be called
+Firth VMs.
+
+This implementation of the Firth VM consists of a dual stack, minimal 
+instruction set, modified Harvard architecture.  It supports a 16kB instruction
+memory, 16kB ROM, 5 memory mapped I/O devices, ~8GB of RAM, and 8GB of flash
+storage.  For output devices, the VM supports 720p video at 24fps, and Red Book
+44.1kHz linear PCM 16bit audio.  On the input side, the VM supports keyboard,
+mouse, and multipoint touchpads.
+
+--------------------------------------------------------------------------------
+Prerequisites
+--------------------------------------------------------------------------------
+
+In order to build and run the Firth VM, you need the following libraries:
+
+	Simple DirectMedia Layer - libSDL - http://libsdl.org/
+	Packet Capture Library - libpcap - http://www.tcpdump.org/
+
+A POSIX compliant/compatable system is also required.  As such this software
+should build without modification on Mac OS X, Free/Net/OpenBSD, Linux, Solaris,
+and other *NIX systems.  It may be possible to build this software under Windows
+using MinGW, but Windows is currently not supported.  This code also requires a
+C compiler that supports the C99 standard, such as GCC.
+
+--------------------------------------------------------------------------------
+Building and Installing
+--------------------------------------------------------------------------------
+
+Assuming that sdl-config is located in your path and you have properly installed
+the prerequisite libraries, building the software should require nothing more
+than:
+
+	make install
+
+This will build and install the program "ns" and set the permissions accordingly.
+If you wish to use the networking support built into the VM, this executeable
+must be run setuid root.  You can enable networking by flagging the setuid bit
+on the executeable:
+
+	chown root ns
+	chmod u+s ns
+
+The executeable only escalates priviledges long enough to open the packet filter
+interface on your system, so that it can read and inject packets on the network.
+If you correctly judge this to be a potential security threat, you can disable
+networking support by removing the setuid bit:
+
+	chmod a-s ns
+
+--------------------------------------------------------------------------------
+Running 
+--------------------------------------------------------------------------------
+
+To run the virtual machine, you will need a full memory image, such as the 
+provided "rom.nsi" file.  This file constains a memory dump of what would be 
+installed on a production system.  The first 16kB consists of a ROM image, that 
+will beloaded into the VM's rom memory space upon "boot", and will be the first 
+bit of code executed when the VM starts up.  The remainder of the file contains 
+the flash memory image.  To run the VM and load the memory image:
+
+	ns rom.nsi
+
+If the rom image can be read into memory, and the VM initialized, the screen
+will switch to a 1280x720 resolution, and display the default application stored
+in the first 16kB of the memory image.  On the off chance it doesn't work, you
+can confirm the exit error codes with those listed in "ns.c".
+
+--------------------------------------------------------------------------------
+Programming
+--------------------------------------------------------------------------------
+
+Assuming you made it this far, "Congratulations!"  At this point you are able to
+begin programming in the NewScript environment.  The environment uses a few 
+simple gestures to ease the task of creating and testing new objects:
+	
+	click & drag down to the right  =  create new text block
+	click & drag down to the left   =  create a new object
+	click & drag an object          =  move the object
+	drag & drop on top of an object =  merge the two objects
+	hover mouse over text + enter	=  evaluate code
+
+In addition to these gestures there are a number of simple shortcut commands to
+navigate the development environment:
+
+	cmd/ctrl-o	=   go to vm overview
+	cmd/ctrl-i	=   go to object inventory 
+	cmd/ctrl-h	=   go to help
+	cmd/ctrl-m	=   go to memory dump
+	cmd/ctrl-l	=   go to lexicon
+	cmd/ctrl-n	=   go to network dump
+
+You can inspect the VM's instruction set by examining the Core object in your
+inventory.  The editor's commands can be examined and extended by editing the
+Macro object.  The native instruction set compiler is available in the 
+Compiler object.  For more information on programming NewScript see the website:
+	
+	http://www.newscript.org/
+
+--------------------------------------------------------------------------------
+Contributing
+--------------------------------------------------------------------------------
+
+If you are interested in contributing to the development of the Firth VM, 
+NewScript software, or the development of the NewScript hardware platform, you
+can join the mailing list:
+
+	newscript-devel@googlegroups.com
+
+Also feel free to contact me at:
+
+	dave@nexttolast.com
+	
+--------------------------------------------------------------------------------
+End
+--------------------------------------------------------------------------------
