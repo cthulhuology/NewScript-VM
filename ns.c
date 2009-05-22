@@ -168,6 +168,12 @@ void net_write(cell val) {			// Write to Network Interface
 	net_write_buffer[net_write_index++] = val;
 }
 
+char err[PCAP_ERRBUF_SIZE];
+void net_error(cell c) {
+	fprintf(stderr,"%s\n",err);
+	exit(c);
+}
+
 void network_init() {
 	int id = getuid();
 	seteuid(0);
@@ -175,19 +181,12 @@ void network_init() {
 		fprintf(stderr,"Disabling network, to enable chmod u+s ns; chown root ns\n");
 		return;
 	}
-	char err[PCAP_ERRBUF_SIZE];
-	if (! (net_device = pcap_lookupdev(err))) {
-		fprintf(stderr,"%s\n",err);
-		exit(NO_NET_DEVICE);
-	}
-	if (pcap_lookupnet(net_device,&net_addr,&net_mask,err)) {
-		fprintf(stderr,"%s\n",err);
-		exit(NO_NET_ADDR);
-	}
-	if (! (net_capture = pcap_open_live(net_device,NET_SIZE,0,1,err))) {
-		fprintf(stderr,"%s\n",err);
-		exit(NO_CAPTURE);
-	}
+	if (! (net_device = pcap_lookupdev(err))) 
+		net_error(NO_NET_DEVICE);
+	if (pcap_lookupnet(net_device,&net_addr,&net_mask,err)) 
+		net_error(NO_NET_ADDR);
+	if (! (net_capture = pcap_open_live(net_device,NET_SIZE,0,1,err))) 
+		net_error(NO_CAPTURE);
 	seteuid(id);
 	net_read_callback();
 }
@@ -214,7 +213,8 @@ cell keymap() {					// Maps from keyboard to Firth character map
 		SDLK_g, SDLK_h, SDLK_i, SDLK_j, SDLK_k, SDLK_l, SDLK_m, SDLK_n, 
 		SDLK_o, SDLK_p, SDLK_q, SDLK_r, SDLK_s, SDLK_t, SDLK_u, SDLK_v, 
 		SDLK_w, SDLK_x, SDLK_y, SDLK_z, SDLK_COMMA, SDLK_PERIOD, SDLK_SLASH, SDLK_SEMICOLON, 
-		SDLK_QUOTE, SDLK_LEFTBRACKET, SDLK_RIGHTBRACKET, SDLK_BACKSLASH, SDLK_BACKQUOTE, SDLK_MINUS, SDLK_EQUALS, SDLK_SPACE, 
+		SDLK_QUOTE, SDLK_LEFTBRACKET, SDLK_RIGHTBRACKET, SDLK_BACKSLASH, 
+		SDLK_BACKQUOTE, SDLK_MINUS, SDLK_EQUALS, SDLK_SPACE, 
 	};
 	for (cell i = 0; map[i]; ++i)		// i is the key value in our character set
 		if (map[i] == c)
@@ -376,26 +376,6 @@ void vid_write(cell val) {			// Write to VGDD command buffer
 	}
 }
 
-cell vid_frame[] = {
-	0,
-	7,0xffff00ff,
-	3,0,180,
-	4,
-	3,20,20,
-	5,0,
-	3,380,0,
-	4,
-	3,20,-20,
-	5,1,
-	3,0,-180,
-	4,
-	3,-20,-20,
-	5,0,
-	3,-380,0,
-	4,
-	3,-20,20,
-	5,1 };
-
 ////////////////////////////////////////////////////////////////////////////////
 // audio functions
 cell audio_memory[44100];	// default buffer is 1sec of audio 44100Hz 2 channels 16bit PCM linear
@@ -556,15 +536,6 @@ void update() {					// Update the system clock & simulate attached devices
 	++samples;
 	rate = (rate*samples + (24*(ticks - period)/1000))/samples;
 	period = ticks;
-	vid_write(1);
-	vid_write(mouse_read());
-	vid_write(720-mouse_read());
-	mouse_read();
-	memcpy(&ram[0x4000],vid_frame,sizeof(vid_frame));
-	src = 0x4000;
-	dst = 0x7ffffffe;
-	cnt = sizeof(vid_frame)/sizeof(cell);
-	mem_move(1);
 	SDL_GL_SwapBuffers();
 	last = now;
 }
@@ -675,7 +646,6 @@ void boot() {				// Load the flash image, and start VM
 	if (flash_size < ROM_SIZE) exit(NO_ROM);
 	memcpy(rom,flash,ROM_SIZE);
 	memcpy(im,flash,ROM_SIZE);
-	go();
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -689,7 +659,7 @@ int main (int argc, char** argv) {	//  Main Program Entry point
 	init();
 	reset();
 	boot();
-	end();
+	go();
 	return 0;
 }
 
