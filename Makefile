@@ -1,7 +1,7 @@
 # NewScript Makefile
 #
 
-CFLAGS = -ggdb -std=c99 `sdl-config --cflags`
+CFLAGS = -O2 -pg -ggdb -std=c99 `sdl-config --cflags`
 LIBS = `sdl-config --libs` -framework OpenGL -lpcap
 
 all : ns
@@ -15,7 +15,7 @@ commit:
 	git commit -a
 
 ns : ns.c
-	gcc -o ns ns.c $(CFLAGS) $(LIBS)
+	gcc $(CFLAGS) -o ns ns.c $(LIBS)
 
 install: ns
 	sudo install -o root -g staff -m 4755 ns /usr/local/bin

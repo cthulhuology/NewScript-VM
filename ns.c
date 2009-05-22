@@ -57,8 +57,8 @@
 
 ////////////////////////////////////////////////////////////////////////////////
 // timings
-#define REFRESH_RATE	1000000	
-#define INTERRUPT_RATE	10000	
+#define REFRESH_RATE	(1000 / 24)
+#define INTERRUPT_RATE	1000	
 
 ////////////////////////////////////////////////////////////////////////////////
 // typedefs
@@ -89,22 +89,27 @@ cell flash_fd;		// File Descriptor of Flash Image
 char* flash_file;	// Filename of Flash Image
 SDL_Surface* display;	// Display Device
 SDL_Event event;	// Last Event Polled
+cell samples = 0;	// Clock rate samples
+cell rate = 0;		// floating rate average
 cell ticks;		// System clock
+cell period;		// Ticks per frame refresh
+cell last;		// Last Frame in ms
+cell now;		// Current Time in ms
 cell* ms;		// Memory Source
 cell* md;		// Memory Destination
 
 ////////////////////////////////////////////////////////////////////////////////
 // vm functions
-void nop() { return; }
-cell tos() { return ds[dsi]; }			// Top of Stack
-cell nos() { return ds[7&(dsi-1)]; }		// Next on Stack
-void up(cell c) { ds[dsi = 7&(dsi+1)] = c; }	// Push c onto Data Stack
-void down() { dsi = 7&(dsi-1); }		// Drop Top of Stack
-void stos(cell c) { ds[dsi] = c; }		// Store Top of Stack
-void snos(cell c) { ds[7&(dsi-1)] = c; }	// Store Next on Stack
-cell rtos() { return rs[rsi]; }			// Return Stack Top of Stack
-void upr(cell c) { rs[rsi = 7&(rsi+1)] = c; }	// Push c onto Return Stack
-void downr() { rsi = 7&(rsi-1); }		// Drop Top of Return Stack
+inline void nop() { return; }
+inline cell tos() { return ds[dsi]; }			// Top of Stack
+inline cell nos() { return ds[7&(dsi-1)]; }		// Next on Stack
+inline void up(cell c) { ds[dsi = 7&(dsi+1)] = c; }	// Push c onto Data Stack
+inline void down() { dsi = 7&(dsi-1); }		// Drop Top of Stack
+inline void stos(cell c) { ds[dsi] = c; }		// Store Top of Stack
+inline void snos(cell c) { ds[7&(dsi-1)] = c; }	// Store Next on Stack
+inline cell rtos() { return rs[rsi]; }			// Return Stack Top of Stack
+inline void upr(cell c) { rs[rsi = 7&(rsi+1)] = c; }	// Push c onto Return Stack
+inline void downr() { rsi = 7&(rsi-1); }		// Drop Top of Return Stack
 
 ////////////////////////////////////////////////////////////////////////////////
 // memory address translation functions
@@ -498,26 +503,28 @@ void mem_cmp() {					// Compare to regions of memory (no device I/O)
 		cnt = memcmp(ms,md,cnt*sizeof(cell));
 	utl |= 0x08;
 }
+////////////////////////////////////////////////////////////////////////////////
+// end simulation
+void end() {
+	munmap(flash,flash_size);
+	close(flash_fd);
+	SDL_Quit();
+	fprintf(stderr,"Effective Speed: %dMHz @ %d samples\n",rate/1000,samples);
+	exit(0);
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // interrupt simulation
 void interrupt() {			// Simulate a device interrupt
+	now = SDL_GetTicks();
 	utl &= 0xfffffff0;
 	if (SDL_PollEvent(&event)) switch(event.type) {
 		case SDL_QUIT:
-			munmap(flash,flash_size);
-			close(flash_fd);
-			SDL_Quit();
-			exit(0);
+			end();
 		case SDL_KEYDOWN:
 			utl |= 1;
 			key_buffer = 0x80 | keymap();
-			if (event.key.keysym.sym == SDLK_ESCAPE) {
-				munmap(flash,flash_size);
-				close(flash_fd);
-				SDL_Quit();
-				exit(0);
-			}
+			if (event.key.keysym.sym == SDLK_ESCAPE) end();
 			break;
 		case SDL_KEYUP:
 			utl |= 1;
@@ -546,20 +553,20 @@ void interrupt() {			// Simulate a device interrupt
 ////////////////////////////////////////////////////////////////////////////////
 // system clock simulation
 void update() {					// Update the system clock & simulate attached devices
-	++ticks;
-	if (!(ticks % INTERRUPT_RATE)) interrupt();
-	if (!(ticks % REFRESH_RATE)) {
-		vid_write(1);
-		vid_write(mouse_read());
-		vid_write(720-mouse_read());
-		mouse_read();
-		memcpy(&ram[0x4000],vid_frame,sizeof(vid_frame));
-		src = 0x4000;
-		dst = 0x7ffffffe;
-		cnt = sizeof(vid_frame)/sizeof(cell);
-		mem_move(1);
-		SDL_GL_SwapBuffers();
-	}
+	++samples;
+	rate = (rate*samples + (24*(ticks - period)/1000))/samples;
+	period = ticks;
+	vid_write(1);
+	vid_write(mouse_read());
+	vid_write(720-mouse_read());
+	mouse_read();
+	memcpy(&ram[0x4000],vid_frame,sizeof(vid_frame));
+	src = 0x4000;
+	dst = 0x7ffffffe;
+	cnt = sizeof(vid_frame)/sizeof(cell);
+	mem_move(1);
+	SDL_GL_SwapBuffers();
+	last = now;
 }
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -568,7 +575,9 @@ void go() {					// Simulate Decoder & ALU
 	cell instr;
 	int a, b;
 fetch:
-	update(); // System hook to simulate hardware, 1 clock each
+	++ticks;
+	if (!(ticks % INTERRUPT_RATE)) interrupt();
+	if (now - last >= REFRESH_RATE) update();
 	ip &= 0x0fff;
 	instr = im[ip++];
 	if (! (instr & 0x80000000)) { 
@@ -680,7 +689,7 @@ int main (int argc, char** argv) {	//  Main Program Entry point
 	init();
 	reset();
 	boot();
-	SDL_Quit();
+	end();
 	return 0;
 }
 
