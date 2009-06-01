@@ -21,6 +21,10 @@ metrics:
 	cat nsc.c | cmetrics.pl
 	cat *.c | cmetrics.pl
 
+.PHONY: push
+push:
+	git push origin master
+
 ns : ns.c
 	gcc $(CFLAGS) -o ns ns.c $(LIBS)
 
