@@ -95,17 +95,17 @@ cell word() {
 	number = 0;				// with a maximum length of 16, it also converts each word
 	hex = 0;				// into a numeric value, which may be used as a literal value
 	input_slot = 0;				// if the word is not found in the lexicon or as an opcode
-	input_index = 0;			// The input buffer is filled in 1 byte at a time
-	while (0x66 != (key = keymap(getchar()))) {	// until the unknown character 0x66 is encountered
-		if (space()) return -1;		// If a space is encountered, then the word is complete.
-		input[input_index] <<= 8;	// Characters are stored in the String table in MSB order
-		input[input_index] |= (0xff & key);	// with the most recent character stored in the LSB
-		if (0x33 == key) hex = 1;	// Since we are walking the string already we calculate
-		else number = (number * (hex ? 16 : 10)) + (0xff & key); // the numeric value, using # to 
-		++input_slot;			// prefix hexidecimal numbers, it is easier to do this now
-		if ((input_slot &= 3) == 0) ++input_index;	// than to have to walk the buffer later
-	}					// When we only get the unknown character, we are done
-	return 0;				// with stdin, which means getchar() -> EOF
+	input_index = 0;			// The input buffer is filled in 1 byte at a time until the
+	while (0x66 != (key = keymap(getchar()))) {		// character 0x66 is encountered
+		if (space()) return -1;				// A word is done if a space is encountered
+		input[input_index] <<= 8;			// and stored in the String table in MSB order
+		input[input_index] |= (0xff & key);		// the last character is stored in the LSB
+		if (0x33 == key) hex = 1;			// and we always calculate the numeric value
+		else number = (number * (hex ? 16 : 10)) + (0xff & key);
+		++input_slot;					// # prefixes hexidecimal numbers, 
+		if ((input_slot &= 3) == 0) ++input_index;	 
+	}							// If we get the  unknown character
+	return 0;						// from stdin, it means getchar() -> EOF
 }
 
 cell string() {
@@ -146,30 +146,32 @@ cell end() {				// End is called as a counterpart to begin, and it finalizes
 
 cell find() {						// Find uses the object names set by begin/end
 	for (int i = lexicon; i != lexicon_end;) {	// to locate the current set of slots in which
-		if (memory[i] == ident) return object = i; // a method may be found.  Using an object's
+		if (memory[i] == ident) return object = i;	// a method may be found.  Using an object's
 		i += (memory[i+1]<<1);			// name switches which current method buffer is
 	}						// queried at compile time.
 	return 0;					// if no object is found, then 
 }
 
-cell current() {
-
+cell define() {				// We will call define before defining a new function
+	pad();				// First we pad to the next cell address, can't jump mid slot
+	memory[--lexicon] = instr;	// then we assemble the current compiling instruction address
+	memory[--lexicon] = ident;	// associate the name of the address 
+	++methods;			// and increment the current object's method count.
 }
 
-cell define(cell c) {
-
+cell method() {							// This finds a method in an object
+	for (int i = object+2; i < memory[object+1]; i += 2)	// We run 2 cells at a time, name=addr
+		if (memory[i] == ident) return memory[i+1];	// If we find the current ident, return addr
+	return 0;						// Otherwise return 0
 }
 
-cell method() {
-
+void function() {			// Compiles a function call
+	pad();				// pad to current address so we can compile a literal
+	memory[instr++] = method();	// compile the literal address of the method
+	byte(0x81);			// write the call opcode
 }
 
-void function() {
-
-
-}
-
-cell lookup() {
+cell opcode() {
 	for (int i = 0; i < OPCODES; ++i)		// For each opcode
 		if (ops[i].key == ident) 		// if the opcode's key == ident
 			return ops[i].value;		// return the opcode value
@@ -184,14 +186,14 @@ void literal() {
 	if (number&0x80000000) byte(0x95);		// for negative number compile a negate opcode
 }
 
+void nop() {} 
+
 void compile() {
-	while(word()) {			// For each word in input
-		ident = string();	// Find string identity
-		cell opc = lookup();	// Then lookup opcode
-		opc ? byte(opc): 	// If opcode compile it otherwise
-		find() ? current():	// Find it in the lexicon, and set the current object
-		method() ? function():	// else look to see if it is a method, and compile a function call
-		literal();		// Otherwise compile literal value
+	while(word()) {				// For each word in input
+		ident = string();		// Find string identity
+		opcode() ? byte(opcode()): 	// If opcode compile it otherwise
+		method() ? function():		// Else see if it is a method, and compile a function call
+		find() ? nop(): literal();	// Otherwise compile literal value
 	}
 }
 
@@ -208,23 +210,33 @@ void init_memory(const char* filename) {
 	if (memory < 0) exit(2);
 }
 
+void load_string(const char* str) {
+	input_slot = input_index = 0;				// reset input buffer
+	memset(input,0xffffffff,4*sizeof(cell));		// set all bits high
+	for (int j = 0; str[j]; ++j) {				// for each character in the string
+		input[input_index] <<= 8; 			// shift the input buffer
+		input[input_index] |= (0xff & keymap(str[j]));  // translate the character
+		++input_slot;					// then shift to the next slot
+		if ((input_slot &= 3) == 0) ++input_index;	// and which input cell on overflow
+	}
+}
+
 void init_strings() {
-	for (int i = 0; i < OPCODES; ++i)  {				// For each opcode
-		input_slot = input_index = 0;				// reset input buffer
-		memset(input,0xffffffff,4*sizeof(cell));		// set all bits high
-		for (int j = 0; opcodes[i].name[j]; ++j) {		// and for each character in the name
-			input[input_index] <<= 8; 			// shift the input buffer
-			input[input_index] |= (0xff & keymap(opcodes[i].name[j])); // translate the character
-			++input_slot;					// then shift to the next slot
-			if ((input_slot &= 3) == 0) ++input_index;	// and which input cell on overflow
-		}
-		ops[i].key = string();					// Then initialize the ops table
-		ops[i].value = opcodes[i].opcode;			// with the correct targe values
+	for (int i = 0; i < OPCODES; ++i)  {		// For each opcode
+		load_string(opcodes[i].name);		// copy the string into the input buffer
+		ops[i].key = string();			// Then initialize the ops table
+		ops[i].value = opcodes[i].opcode;	// with the correct targe values
 	}
 }
 
 void init_lexicon() {
-
+	for (int i = 0; i < OPCODES; ++i) {		// For each opcode we compile a simple definition
+		memory[--lexicon] = ops[i].value;	// which will form the basis for the Core Object
+		memory[--lexicon] = ops[i].key;		// In the native compiler, we'll use these as lits
+	}
+	load_string("Core");				// We can load the string "Core" for the core
+	memory[--lexicon] = OPCODES;			// Object, but we never use this with find
+	memory[--lexicon] = string(); 			// it is just a tool for debugging
 }
 
 void fini_memory() {
