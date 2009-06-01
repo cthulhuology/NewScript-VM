@@ -383,10 +383,7 @@ void vid_draw() {				// Draw a texture image at x,y to dx,dy
 void vid_blit() {				// Write to VGDD Texture Memory
 	source();
 	texture_index = 0;
-	for (int i = 0; i < cnt; ++i)  {
-		texture_memory[texture_index++] = ms[i];
-		fprintf(stderr,"TM[%d] = %p\n",i,texture_memory[texture_index -1]);
-	}
+	for (int i = 0; i < cnt; ++i)  texture_memory[texture_index++] = ms[i];
 	glBindTexture(GL_TEXTURE_2D,texture_id);
 	glTexImage2D(GL_TEXTURE_2D,0,4,dx,dy,0,GL_RGBA,GL_UNSIGNED_BYTE,texture_memory);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
@@ -409,41 +406,6 @@ void vid_write(cell val) {			// Write to VGDD command buffer
 	if (vid_vector[video_command[0]].count == video_index) 
 		vid_vector[video_command[0]].cmd();
 }						// to reset the video display, the sequence: 0 0 0
-
-void vid_test() {
-	SDL_Surface* img = IMG_Load("pic.png");
-	if (! img) {
-		fprintf(stderr,"Failed to load image %s",SDL_GetError());	
-		exit(123);
-	}
-	int j = 0;
-	Uint8* data = img->pixels;
-	fprintf(stderr,"Pixels at %p\n",data);
-	fprintf(stderr,"BPP %d\n",img->format->BytesPerPixel);
-	fprintf(stderr,"X %d Y %d P %d\n",img->w,img->h,img->pitch);
-	for (int i = 0; i < 48*48*3; i += 3)  {
-		ram[0x1000+j++] = 0xff000000 
-			| data[i+0]
-			| data[i+1] << 8
-			| data[i+2] << 16;
-		fprintf(stderr, "%p => %p\n",*(Uint32*)((Uint8*)img->pixels+i),ram[0x1000+j-1]); 
-	}
-	vid_write(0);	// clear
-	vid_write(8);	// color
-	vid_write(0xffffffff); // some yellow
-	vid_write(1);	// at
-	vid_write(100); // 100
-	vid_write(100); // 100
-	vid_write(3);	// by
-	vid_write(48); // 302
-	vid_write(48);	// 227
-	src = 0x1000;
-	dst = 0x7fffffe;
-	cnt = 48*48;
-	vid_write(0xa); // blit
-	vid_write(0x6); // draw a rect
-	vid_write(0x9); // draw
-}
 
 ////////////////////////////////////////////////////////////////////////////////
 // audio functions
@@ -603,7 +565,6 @@ void update() {					// Simulate attached devices
 	++samples;				// update statistical sample count
 	rate = (rate*samples + (24*(ticks - period)/1000))/samples; // avg ticks per frame
 	period = ticks;				// reset the priod counter
-	vid_test();
 	SDL_GL_SwapBuffers();			// update the video frame
 	last = now;				// reset the frame refresh window
 }

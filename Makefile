@@ -15,6 +15,12 @@ clean:
 commit:
 	git commit -a
 
+.PHONY: metrics
+metrics:
+	cat ns.c | cmetrics.pl
+	cat nsc.c | cmetrics.pl
+	cat *.c | cmetrics.pl
+
 ns : ns.c
 	gcc $(CFLAGS) -o ns ns.c $(LIBS)
 
