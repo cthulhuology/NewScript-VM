@@ -395,8 +395,9 @@ struct {
 	void (*cmd)();
 	cell count;
 } vid_vector[] = {
-	{ vid_clear, 1 }, { vid_at, 3 },   { vid_to, 3 },    { vid_by, 3 },   { vid_line, 1 },
-	{ vid_arc, 2 },   { vid_rect, 1 }, { vid_color, 2 }, { vid_fill, 2 }, 
+	{ vid_clear, 1 }, { vid_at, 3 },  { vid_to, 3 },   { vid_by, 3 },   
+	{ vid_line, 1 },  { vid_arc, 2 }, { vid_rect, 1 }, 
+	{ vid_color, 2 }, { vid_fill, 2 }, 
 	{ vid_draw, 1 },  { vid_blit, 1 }
 };
 
@@ -435,7 +436,7 @@ void audio_init() {			// We initialize audio playback to Red Book CD audio, 44.1
 
 void aud_write(cell val) {				// Write to audio memory
 	SDL_LockAudio();				
-	source();			// Individual samples, 2 channels at a time, are 
+	source();					// Individual samples, 2 channels at a time, are 
 	if (!ms) return;				// scheduled as mass write using the DMA copy
 	if (utl&0x08) {					// instructions.  The prefered method is to copy
 		audio_index %= 44100;			// up to 1/44 seconds of audio, and to prime the
