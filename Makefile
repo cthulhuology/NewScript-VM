@@ -1,8 +1,12 @@
 # NewScript Makefile
 #
 
-CFLAGS = -O2 -ggdb -std=c99 `sdl-config --cflags`
-LIBS = `sdl-config --libs` -framework OpenGL -lpcap -lSDL_image
+CFLAGS = -DINLINE= -ggdb -std=c99
+SDLFLAGS = `sdl-config --cflags`
+
+LIBS = 
+SDLLIBS = `sdl-config --libs` -framework OpenGL -lpcap -lSDL_image
+
 
 all : ns nsc
 
@@ -26,7 +30,7 @@ push:
 	git push origin master
 
 ns : ns.c
-	gcc $(CFLAGS) -o ns ns.c $(LIBS)
+	gcc $(CFLAGS) $(SDLFLAGS) -o ns ns.c $(LIBS) $(SDLLIBS)
 
 nsc : nsc.c
 	gcc $(CFLAGS) -o nsc nsc.c $(LIBS)

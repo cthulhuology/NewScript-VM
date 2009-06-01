@@ -56,7 +56,7 @@ struct {		// This table provides the system with a base list of opcodes for the 
 
 struct {		// This structure stores the translated opcode names and the associated 
 	cell key;	// instruction values.  This table is populated using the above data in
-	cell value;	// init_strings();  It is used by lookup() to find opcodes.  This allows
+	cell value;	// init_strings();  It is used by opcode() to find opcodes.  This allows
 } ops[OPCODES];		// us to bootstrap the system, without knowing about the Core object.
 
 cell instr = 0;		// Pointer to currently compiling instruction cell
@@ -64,7 +64,7 @@ cell slot = 0;		// Current slot 0,1,2,3 within the instruction cell
 
 cell* memory = NULL;			// Base address of the relocateable memory image, 0x80000000 in
 cell memory_size = IMAGE_SIZE;		// the VM, the size of the image produced determined by the 
-cell fd;				// macros above.  The fd holds the OS filehandle on the image file.
+cell fd = -1;				// macros above.  The fd holds the OS filehandle on the image file.
 
 cell lexicon_end = LEXICON_OFFSET;	// Top address in the lexicon, minimum string address
 cell lexicon = LEXICON_OFFSET;		// This is the current address in the lexicon, grows down.
@@ -72,12 +72,16 @@ cell lexicon = LEXICON_OFFSET;		// This is the current address in the lexicon, g
 cell strings_end = STRINGS_OFFSET;	// Top address in the strings table, should be the top of the image
 cell strings = STRINGS_OFFSET;		// current address in the strings table, supports 20k unique strings.
 
-cell hex;		// Flag indicating whether or not the first character in a word is #
-cell number;		// The current numeric value of word being parsed, we always calculate just in case
-cell key;		// This is the translated key value from the next character in stdin
+cell hex = 0;		// Flag indicating whether or not the first character in a word is #
+cell number = 0;	// The current numeric value of word being parsed, we always calculate just in case
+cell key = 0;		// This is the translated key value from the next character in stdin
 cell input[4];		// A 4 cell structure which holds the current word being read in, it can contain
-cell input_index;	// no more than 16 characters total, hence input_index is between 0 and 3
-cell input_slot;	// similarly, input_slot is either 0,1,2,3 representing the byte at input[input_index]
+cell input_index = 0;	// no more than 16 characters total, hence input_index is between 0 and 3
+cell input_slot = 0;	// similarly, input_slot is either 0,1,2,3 representing the byte at input[input_index]
+cell line = 0;		// The line is a 4 mode, 0 = Object 1 = verb 2 = code 3 = comment line descriptor
+
+cell object;	// current active object, this is used to look up method names
+cell ident;	// identity of active element, holds the string pointer to the string we are looking for
 
 cell keymap(int c) {	
 	for (cell i = 0; i < sizeof(char_map); ++i)	// We walk through the character map and
@@ -86,17 +90,21 @@ cell keymap(int c) {
 }
 
 cell space() {
-	if (key == 0x2f || key == 0x5f || key == 0x60) return -1;	// space, tab, new line
+	if (key == 0x5f) ++line;					// increment line for each tab
+	fprintf(stderr,"Key is %p Line is %d\n",key,line);
+	if (key == 0x2f || key == 0x5f || key == 0x60) return -1;	// space, tab, newline
 	return 0;							// all other characters
 }
 
+cell inkey() { return key = keymap(getchar()); }
+
 cell word() {
-	memset(input,0xff,sizeof(cell));	// Word parses the values from stdin, into separate words
-	number = 0;				// with a maximum length of 16, it also converts each word
-	hex = 0;				// into a numeric value, which may be used as a literal value
-	input_slot = 0;				// if the word is not found in the lexicon or as an opcode
-	input_index = 0;			// The input buffer is filled in 1 byte at a time until the
-	while (0x66 != (key = keymap(getchar()))) {		// character 0x66 is encountered
+	memset(input,0xff,4*sizeof(cell));	// Word parses the values from stdin, into separate words
+	hex = number = 0;			// with a maximum length of 16, it also converts each word
+						// into a numeric value, which may be used as a literal value
+	input_index = input_slot = 0;		// if the word is not found in the lexicon or as an opcode
+						// The input buffer is filled in 1 byte at a time until the
+	while (0x66 != inkey()) {		// character 0x66 is encountered
 		if (space()) return -1;				// A word is done if a space is encountered
 		input[input_index] <<= 8;			// and stored in the String table in MSB order
 		input[input_index] |= (0xff & key);		// the last character is stored in the LSB
@@ -108,7 +116,14 @@ cell word() {
 	return 0;						// from stdin, it means getchar() -> EOF
 }
 
+cell dump() {
+	unsigned char* str = (unsigned char*)&memory[ident];
+	for (cell i = 0; i < 16 && (*(str+i) != 0xff); ++i)
+		fprintf(stderr,"%c",char_map[*(str+i)]);
+}
+
 cell string() {
+	if (!input_index  && ! input_slot) return 0;	// If the string is empty return 0
 	for (cell i = strings; i < strings_end; i+=4)	// This function looks up the input buffer's
 		if (memory[i] == input[0] 		// value in the string table, and returns the
 		&& memory[i+1] == input[1] 		// applicable index if found, otherwise
@@ -119,7 +134,7 @@ cell string() {
 	return strings;					// We can use these strings for any purpose.
 }
 
-void  byte(cell c) {
+void byte(cell c) {
 	memory[instr] |= ((c&0xff) << (8*slot));	// This function will compile one byte to the
 	++slot;						// begining of instruction memory.  It will 
 	if ((slot &= 3) == 0) ++instr;			// switch cells on slot overflow.
@@ -129,40 +144,39 @@ void pad() {
 	while (slot) byte(0x80);		// Pad is used to align to a cell boundary, writes nops
 }
 
-cell object;	// current active object, this is used to look up method names
-cell ident;	// identity of active element, holds the string pointer to the string we are looking for
-cell name;	// name of current object, holds the string pointer for the name of the current object
-cell methods;	// number of methods in current object, used to speed object lookup in the lexicon
-
-cell begin() {		// We call begin to start a new object, this is represented in code by a line
-	methods = 0;	// with no whitespace at the begining and a word starting with a capital letter
-	name = ident;	// we save the value of that line for later writing to the lexicon
-}
-
-cell end() {				// End is called as a counterpart to begin, and it finalizes
-	memory[--lexicon] = methods;	// the current object's definition.  Once end is called the 
-	memory[--lexicon] = name;	// object may not be modified, and the number of methods is set.
+cell begin() {		
+	memory[--lexicon] = 0;	// with no tabs at the begining and a word starting with a capital letter
+	memory[--lexicon] = ident;	// we save the value of that line for later writing to the lexicon
+	object = lexicon;		// and initialize the current object to this object
+	fprintf(stderr,"Compiling object ");
+	dump();
+	fprintf(stderr,"\n");
 }
 
 cell find() {						// Find uses the object names set by begin/end
-	for (int i = lexicon; i != lexicon_end;) {	// to locate the current set of slots in which
+	for (int i = lexicon; i < lexicon_end;) {	// to locate the current set of slots in which
 		if (memory[i] == ident) return object = i;	// a method may be found.  Using an object's
-		i += (memory[i+1]<<1);			// name switches which current method buffer is
+		i += ((memory[i+1]<<1)+2);		// name switches which current method buffer is
 	}						// queried at compile time.
 	return 0;					// if no object is found, then 
 }
 
-cell define() {				// We will call define before defining a new function
-	pad();				// First we pad to the next cell address, can't jump mid slot
-	memory[--lexicon] = instr;	// then we assemble the current compiling instruction address
-	memory[--lexicon] = ident;	// associate the name of the address 
-	++methods;			// and increment the current object's method count.
+void define() {			
+	pad();						// To define a new method, we copy down the 
+	lexicon -= 2;					// object's header, incrementing the method count
+	memory[lexicon] = memory[lexicon+2];		// and then set the method name and address
+	memory[lexicon+1] = memory[lexicon+3]+1;	// after padding to the next full cell address
+	memory[lexicon+2] = ident;
+	memory[lexicon+3] = instr;
+	object = lexicon;				// Finally we reset the current object to here!
+	fprintf(stderr,"Defining method ["); dump(); fprintf(stderr,"]\n");
 }
 
-cell method() {							// This finds a method in an object
-	for (int i = object+2; i < memory[object+1]; i += 2)	// We run 2 cells at a time, name=addr
-		if (memory[i] == ident) return memory[i+1];	// If we find the current ident, return addr
-	return 0;						// Otherwise return 0
+cell method() {						// This finds a method in an object
+	for (int i = 0; i < memory[object+1]; i += 2)	// We run 2 cells at a time, name=addr
+		if (memory[object+i+2] == ident)	// If we find the current ident, return addr
+			return memory[object+i+3];		
+	return 0;					// Otherwise return 0
 }
 
 void function() {			// Compiles a function call
@@ -173,8 +187,10 @@ void function() {			// Compiles a function call
 
 cell opcode() {
 	for (int i = 0; i < OPCODES; ++i)		// For each opcode
-		if (ops[i].key == ident) 		// if the opcode's key == ident
+		if (ops[i].key == ident) { 		// if the opcode's key == ident
+			fprintf(stderr,"Compiling opcode %d\n",ops[i].value);
 			return ops[i].value;		// return the opcode value
+		}
 	return 0;					// or 0 if not an opcode
 }
 
@@ -186,14 +202,33 @@ void literal() {
 	if (number&0x80000000) byte(0x95);		// for negative number compile a negate opcode
 }
 
-void nop() {} 
+void skip() { 
+	while(0x60 != inkey()); 
+	line = 0;
+}
+
+void unknown() {
+	fprintf(stderr,"%d >> unknown word [",line); dump(); fprintf(stderr,"]\n");
+	switch(line) {					// Unknown at start of the line are
+		case 0: begin(); break;			// names of objects, while unknown
+		case 1: define(); break;		// one tab in are verbs, otherwise
+		case 2: literal(); break;		// we compile a number literal or
+		default: skip(); break;			// 3 tabs skip comment to end of line
+	}
+} 
+
+void nop() {}
 
 void compile() {
 	while(word()) {				// For each word in input
+		if (line > 2) skip();		// Skip to end of line if we are in a comment
 		ident = string();		// Find string identity
+		if (ident == 0) continue;	// If it is an empty string continue
+		fprintf(stderr,"found string ["); dump(); fprintf(stderr,"]\n");
 		opcode() ? byte(opcode()): 	// If opcode compile it otherwise
 		method() ? function():		// Else see if it is a method, and compile a function call
-		find() ? nop(): literal();	// Otherwise compile literal value
+		find() ? nop() : unknown();	// Otherwise see if it is an object, or unknown
+		if (key == 0x60) line = 0;	// reset line on newline
 	}
 }
 

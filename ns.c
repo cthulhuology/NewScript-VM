@@ -102,7 +102,6 @@ cell* md;		// Memory Destination
 
 ////////////////////////////////////////////////////////////////////////////////
 // vm functions
-#define INLINE inline
 INLINE void nop() { return; }
 INLINE cell tos() { return ds[dsi]; }			// Top of Stack
 INLINE cell nos() { return ds[7&(dsi-1)]; }		// Next on Stack
