@@ -20,6 +20,7 @@
 // headers
 #include "SDL.h"
 #include "SDL_opengl.h"
+#include "SDL_image.h"
 #include <OpenGL/gl.h>
 #include <OpenGL/glu.h>
 #include <unistd.h>
@@ -51,8 +52,8 @@
 // sizes
 #define CACHE_SIZE	4096
 #define ROM_SIZE	4096
-#define RAM_SIZE	1073741824
-#define FLASH_SIZE	1073741824
+#define RAM_SIZE	268435456
+#define FLASH_SIZE	268435456
 #define NET_SIZE	4096
 
 ////////////////////////////////////////////////////////////////////////////////
@@ -101,27 +102,28 @@ cell* md;		// Memory Destination
 
 ////////////////////////////////////////////////////////////////////////////////
 // vm functions
-inline void nop() { return; }
-inline cell tos() { return ds[dsi]; }			// Top of Stack
-inline cell nos() { return ds[7&(dsi-1)]; }		// Next on Stack
-inline void up(cell c) { ds[dsi = 7&(dsi+1)] = c; }	// Push c onto Data Stack
-inline void down() { dsi = 7&(dsi-1); }			// Drop Top of Stack
-inline void stos(cell c) { ds[dsi] = c; }		// Store Top of Stack
-inline void snos(cell c) { ds[7&(dsi-1)] = c; }		// Store Next on Stack
-inline cell rtos() { return rs[rsi]; }			// Return Stack Top of Stack
-inline void upr(cell c) { rs[rsi = 7&(rsi+1)] = c; }	// Push c onto Return Stack
-inline void downr() { rsi = 7&(rsi-1); }		// Drop Top of Return Stack
+#define INLINE inline
+INLINE void nop() { return; }
+INLINE cell tos() { return ds[dsi]; }			// Top of Stack
+INLINE cell nos() { return ds[7&(dsi-1)]; }		// Next on Stack
+INLINE void up(cell c) { ds[dsi = 7&(dsi+1)] = c; }	// Push c onto Data Stack
+INLINE void down() { dsi = 7&(dsi-1); }			// Drop Top of Stack
+INLINE void stos(cell c) { ds[dsi] = c; }		// Store Top of Stack
+INLINE void snos(cell c) { ds[7&(dsi-1)] = c; }		// Store Next on Stack
+INLINE cell rtos() { return rs[rsi]; }			// Return Stack Top of Stack
+INLINE void upr(cell c) { rs[rsi = 7&(rsi+1)] = c; }	// Push c onto Return Stack
+INLINE void downr() { rsi = 7&(rsi-1); }		// Drop Top of Return Stack
 
 ////////////////////////////////////////////////////////////////////////////////
 // memory address translation functions
-void memory_source_address() {					// Switch between
+void source() {					// Switch between
 	ms = src & 0x80000000 ? &flash[src & 0x7fffffff]:	// VM addressing 
 		src < 0x1000 ? &rom[src] :			// and C style native
 		src < 0x7ffffff9 ? &ram[src] :			// addressing for
 		NULL;						// NUMA architecture.
 }								// These functions
 								// map flash memory
-void memory_destination_address() {				// address 0x80000000+
+void destination() {				// address 0x80000000+
 	md = dst & 0x80000000 ? &flash[dst] :			// to the memory image
 		dst < 0x1000 ? &im[dst] :			// and addresses < 0x1000
 		dst < 0x7ffffff9 ? &ram[dst] :			// to ROM or IM with all
@@ -131,17 +133,17 @@ void memory_destination_address() {				// address 0x80000000+
 ////////////////////////////////////////////////////////////////////////////////
 // network functions
 
-char* net_device;			// name of the interface on which we listen
-cell net_addr;				// our network address, eg. 192.168.1.1 
-cell net_mask;				// our netmask, eg. 255.255.255.0
-pcap_t* net_capture;			// a handle to the packet capture device
+char* net_device = NULL;		// name of the interface on which we listen
+cell net_addr = 0;			// our network address, eg. 192.168.1.1 
+cell net_mask = 0;			// our netmask, eg. 255.255.255.0
+pcap_t* net_capture = NULL;		// a handle to the packet capture device
 
 cell net_read_buffer[NET_SIZE];		// an input buffer for incoming packets
-cell net_read_index;			// an index into the read buffer
-cell net_read_len;			// the number of bytes read last read
+cell net_read_index = 0;		// an index into the read buffer
+cell net_read_len = 0;			// the number of bytes read last read
 
 cell net_write_buffer[NET_SIZE];	// an output buffer for outgoing packets
-cell net_write_index;			// an index into the write buffer
+cell net_write_index = 0;		// an index into the write buffer
 
 void net_read_callback() {
 	struct pcap_pkthdr hdr;					// We read the next
@@ -194,6 +196,7 @@ void network_init() {			// To initialize the network we need to gain root access
 }
 
 void net_interrupt() {
+	if (!net_capture) return;
 	net_read_callback();
 	net_write_callback();
 }
@@ -244,6 +247,7 @@ cell keymap() {					// Maps from keyboard to Firth character map
 Sint16 x,y,dx,dy;				// VGDD State Machine position data x,y,dx,dy
 cell texture_memory[1280*720];			// 720p VGDD Texture Memory, used for blitting to screen
 cell texture_index = 0;				// Index into Texture Memory
+cell texture_id;				// OpenGL texture handle
 cell video_color[2];				// VGDD Color Buffer, 0 RGBA line, 1 RGBA fill
 cell video_command[3];				// VGDD command buffer, 0 tag 1 data 2 data
 cell video_index = 0;				// VGDD command buffer index 
@@ -259,14 +263,16 @@ void video_init() {
 	glViewport(0,0,1280,720);				// output of a device that implements our
 	glClearColor(1.0,1.0,1.0,1.0);				// drawing state machine.
 	glMatrixMode(GL_PROJECTION);
-	glLoadIdentity();					// Rather than using a black background, we
-	glOrtho(0.0,1280.0,0.0,720.0,1.0,-1.0);			// are using a white one, with a resolution
-	glEnable(GL_LINE_SMOOTH);				// of 1280x720, aka 720p for HD video.  Our
-	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);	// target frame rate is 24fps, which is what
-	glEnable(GL_BLEND);					// US HD movies use.  The hardware supports
-	glMatrixMode(GL_MODELVIEW);				// a full alpha channel as well, so blending
-	glLoadIdentity();					// is done automatically in hardware based
-	if (! display) exit(NO_DISPLAY);			// on the RGBA images. 
+	glLoadIdentity();			
+	glOrtho(0.0,1280.0,0.0,720.0,1.0,-1.0);		
+	glMatrixMode(GL_MODELVIEW);				
+	glShadeModel(GL_SMOOTH);
+	glEnable(GL_LINE_SMOOTH);			
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+	glEnable(GL_BLEND);				
+	glLoadIdentity();				
+	glGenTextures(1,&texture_id);		
+	if (! display) exit(NO_DISPLAY);			
 }
 
 void vid_clear() {
@@ -352,36 +358,92 @@ void vid_fill() {				// set fill color
 }
 
 void vid_draw() {				// Draw a texture image at x,y to dx,dy
+	glBindTexture(GL_TEXTURE_2D, texture_id);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+	glTexEnvf(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE);
+	glEnable(GL_TEXTURE_2D);
+	glBlendFunc(GL_SRC_ALPHA,GL_ONE_MINUS_SRC_ALPHA);
+	glEnable(GL_BLEND);
+	glBegin(GL_QUADS);
+	glTexCoord2s(0,0);
+	glVertex3i(x,y+dy,0);
+	glTexCoord2s(1,0);
+	glVertex3i(x+dx,y+dy,0);
+	glTexCoord2s(1,1);
+	glVertex3i(x+dx,y,0);
+	glTexCoord2s(0,1);
+	glVertex3i(x,y,0);
+	glEnd();
 	x += dx;
 	y += dy;
 	video_index = 0;
 }
 
 void vid_blit() {				// Write to VGDD Texture Memory
-	for (int i = 0; i < cnt; ++i) {
-		texture_memory[texture_index++] = 0;
+	source();
+	texture_index = 0;
+	for (int i = 0; i < cnt; ++i)  {
+		texture_memory[texture_index++] = ms[i];
+		fprintf(stderr,"TM[%d] = %p\n",i,texture_memory[texture_index -1]);
 	}
+	glBindTexture(GL_TEXTURE_2D,texture_id);
+	glTexImage2D(GL_TEXTURE_2D,0,4,dx,dy,0,GL_RGBA,GL_UNSIGNED_BYTE,texture_memory);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR_MIPMAP_LINEAR);
+	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR_MIPMAP_LINEAR);
 	video_index = 0;
 }
 
+struct {
+	void (*cmd)();
+	cell count;
+} vid_vector[] = {
+	{ vid_clear, 1 }, { vid_at, 3 },   { vid_to, 3 },    { vid_by, 3 },   { vid_line, 1 },
+	{ vid_arc, 2 },   { vid_rect, 1 }, { vid_color, 2 }, { vid_fill, 2 }, 
+	{ vid_draw, 1 },  { vid_blit, 1 }
+};
+
 void vid_write(cell val) {			// Write to VGDD command buffer
 	video_index %= 3;			// by writing to port 0x7ffffffe one can issue VGDD opcodes
-	video_command[video_index++] = val;	// to the video coprocessor, each command has a set number
-	switch(video_command[0]) {		// of args and will evaluate a new set each display cycle
-		case 0x0: if (video_index == 1) vid_clear(); break;	// 0 = clear
-		case 0x1: if (video_index == 3) vid_at(); break;	// 1 = at x y
-		case 0x2: if (video_index == 3) vid_to(); break;	// 2 = to dx dy
-		case 0x3: if (video_index == 3) vid_by(); break;	// 3 = by dx dy
-		case 0x4: if (video_index == 1) vid_line(); break;	// 4 = line
-		case 0x5: if (video_index == 2) vid_arc(); break;	// 5 = arc
-		case 0x6: if (video_index == 1) vid_rect(); break;	// 6 = rect
-		case 0x7: if (video_index == 2) vid_color(); break;	// 7 = color rgba
-		case 0x8: if (video_index == 2) vid_fill(); break;	// 8 = fill rgba
-		case 0x9: if (video_index == 1) vid_draw(); break;	// 9 = draw
-		case 0xa: if (video_index == 1) vid_blit(); break;	// a = blit
-		default: break;						// others = ignore
-	}					// to reset the video display, the sequence: 0 0 0
-}						// is guranteed to clear the screen and reset buffer
+	video_command[video_index++] = val;	// to the video coprocessor
+	if (vid_vector[video_command[0]].count == video_index) 
+		vid_vector[video_command[0]].cmd();
+}						// to reset the video display, the sequence: 0 0 0
+
+void vid_test() {
+	SDL_Surface* img = IMG_Load("pic.png");
+	if (! img) {
+		fprintf(stderr,"Failed to load image %s",SDL_GetError());	
+		exit(123);
+	}
+	int j = 0;
+	Uint8* data = img->pixels;
+	fprintf(stderr,"Pixels at %p\n",data);
+	fprintf(stderr,"BPP %d\n",img->format->BytesPerPixel);
+	fprintf(stderr,"X %d Y %d P %d\n",img->w,img->h,img->pitch);
+	for (int i = 0; i < 48*48*3; i += 3)  {
+		ram[0x1000+j++] = 0xff000000 
+			| data[i+0]
+			| data[i+1] << 8
+			| data[i+2] << 16;
+		fprintf(stderr, "%p => %p\n",*(Uint32*)((Uint8*)img->pixels+i),ram[0x1000+j-1]); 
+	}
+	vid_write(0);	// clear
+	vid_write(8);	// color
+	vid_write(0xffffffff); // some yellow
+	vid_write(1);	// at
+	vid_write(100); // 100
+	vid_write(100); // 100
+	vid_write(3);	// by
+	vid_write(48); // 302
+	vid_write(48);	// 227
+	src = 0x1000;
+	dst = 0x7fffffe;
+	cnt = 48*48;
+	vid_write(0xa); // blit
+	vid_write(0x6); // draw a rect
+	vid_write(0x9); // draw
+}
 
 ////////////////////////////////////////////////////////////////////////////////
 // audio functions
@@ -411,7 +473,7 @@ void audio_init() {			// We initialize audio playback to Red Book CD audio, 44.1
 
 void aud_write(cell val) {				// Write to audio memory
 	SDL_LockAudio();				
-	memory_source_address();			// Individual samples, 2 channels at a time, are 
+	source();			// Individual samples, 2 channels at a time, are 
 	if (!ms) return;				// scheduled as mass write using the DMA copy
 	if (utl&0x08) {					// instructions.  The prefered method is to copy
 		audio_index %= 44100;			// up to 1/44 seconds of audio, and to prime the
@@ -467,8 +529,8 @@ void mem_write(cell addr, cell value) {			// Write to a memory address (device I
 
 void mem_move(int d) {				// Copy memory from one location to another
 	utl &= 0xfffffff7;			// When we want to copy memory from one region to another
-	memory_source_address();		// this routine will safely write it to a I/O device or
-	memory_destination_address();		// copy it to the correct region. The direction flag
+	source();		// this routine will safely write it to a I/O device or
+	destination();		// copy it to the correct region. The direction flag
 	if (ms && md) 				// indicates whether we are writing up or down.
 		d < 0 ? memmove(md-cnt,ms-cnt,cnt*sizeof(cell)) : memmove(md,ms,cnt*sizeof(cell));	
 	else if (!ms) 
@@ -485,8 +547,8 @@ void mem_move(int d) {				// Copy memory from one location to another
 // NB: we can't compare device data!  Copy to a buffer first.  dst = im, src = rom
 void mem_cmp() {					// Compare to regions of memory (no device I/O)
 	utl &= 0xfffffff7;				// When two regions of memory need to be compared
-	memory_source_address();			// this routine will set the cnt register to 0
-	memory_destination_address();			// if the two regions are identical.
+	source();					// this routine will set the cnt register to 0
+	destination();					// if the two regions are identical.
 	if (ms && md) 					// If the regions are different the cnt register
 		cnt = memcmp(ms,md,cnt*sizeof(cell));	// will continue to contain a non-zero value.
 	utl |= 0x08;					// devices can not be compared in this fashion
@@ -541,6 +603,7 @@ void update() {					// Simulate attached devices
 	++samples;				// update statistical sample count
 	rate = (rate*samples + (24*(ticks - period)/1000))/samples; // avg ticks per frame
 	period = ticks;				// reset the priod counter
+	vid_test();
 	SDL_GL_SwapBuffers();			// update the video frame
 	last = now;				// reset the frame refresh window
 }
@@ -630,8 +693,8 @@ void init() {				// Initialize Platform Specific Application Settings
 // vm initialization
 void reset() {					// Reset the VM, unmap flash if loaded
 	ip = dsi = rsi = cnt = src = dst = utl = 0;
-	ram = mmap(NULL,RAM_SIZE,PROT_READ|PROT_WRITE,MAP_ANON,-1,0);
-	if (ram < 0) exit(NO_RAM);		// We use an anonymous block as our RAM
+	ram = mmap(NULL,RAM_SIZE,PROT_READ|PROT_WRITE,MAP_PRIVATE|MAP_ANON,-1,0);
+	if (ram == (cell*)0xffffffff) exit(NO_RAM);	// We use an anonymous block as our RAM
 	if (flash) {				// the flash file is mapped to an actual
 		munmap(flash,flash_size);	// file on the host system.  This mimics
 		close(flash_fd);		// the NUMA architecture of the emulated

@@ -1,8 +1,8 @@
 # NewScript Makefile
 #
 
-CFLAGS = -O2 -pg -ggdb -std=c99 `sdl-config --cflags`
-LIBS = `sdl-config --libs` -framework OpenGL -lpcap
+CFLAGS = -O2 -ggdb -std=c99 `sdl-config --cflags`
+LIBS = `sdl-config --libs` -framework OpenGL -lpcap -lSDL_image
 
 all : ns nsc
 
